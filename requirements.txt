@@ -1,0 +1,6 @@
+torch
+torchvision
+ftfy
+matplotlib
+easydict
+regex
