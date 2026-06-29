@@ -11,16 +11,24 @@ import sys
 
 from lib.config import cfg, cfg_from_file
 from lib.utils import *
+from lib.ia3 import is_ia3_param, collect_ia3_params, apply_ia3_updates, reset_ia3_to_identity
+from lib.checkpointing import save_task_checkpoint
 from data.dataset import *
 from utils.vision import *
 from torch.func import jacrev, functional_call
 from lib.train import tangent_tuning_a_batch, train_one_batch
 from pathlib import Path
 from lib.signatures import OnlineDiagonalGMM, detect_convergence_stationary_streaming
+from evaluate import evaluate_at_task
 from timm.models import create_model
 from timm.utils import accuracy
 from torch import optim
 
+# Hyperparameters for the closed-form linearized adaptation (Eq. "ridge-sol").
+TANGENT_ETA = 0.03
+TANGENT_RIDGE_LAMBDA = 1.0
+# Learning rate for the (gradient-based) classification-head warm start.
+HEAD_LR = 1e-3
 
 def set_seed(seed):
     cfg.seed = seed
@@ -42,12 +50,24 @@ class Net(torch.nn.Module):
         out["target_logits"] = target_logits
         return target_logits
 
+def log_gmm_summary(online_gauss, prefix=""):
+    """Log a concise summary of the current Gaussian-mixture task key."""
+    weights = online_gauss.counts / (online_gauss.counts.sum() + 1e-8)
+    log(f"\n{prefix} ===== GMM task key summary =====")
+    log(f"Clusters: {online_gauss.means.shape[0]} | Feature dim: {online_gauss.means.shape[1]}")
+    for k in range(online_gauss.means.shape[0]):
+        log(f"  cluster {k}: count={online_gauss.counts[k].item():.1f}, "
+            f"weight={weights[k].item():.3f}, "
+            f"mean_norm={online_gauss.means[k].norm().item():.3f}, "
+            f"var_mean={online_gauss.vars[k].mean().item():.4f}")
+    log("==================================\n")
+
 def learn_continually():
     log('\nRunning experiments using TANGENT FINETUNING')
     tasks = range(cfg.continual.n_tasks)
     if cfg.continual.shuffle_task:
         tasks = torch.randperm(cfg.continual.n_tasks).tolist()
-
+ 
     # Define ViT model.
     vit_model = create_model(
         cfg.dtask.model,
@@ -58,223 +78,175 @@ def learn_continually():
         drop_block_rate=None,
         head_type=cfg.dtask.head_type,
     )
-    vit_model.to(cfg.device) 
+    vit_model.to(cfg.device)
     for n, p in vit_model.named_parameters():
-        if "head" in n:
-            p.requires_grad = True
-        else:
-            p.requires_grad = False 
-
+        p.requires_grad = "head" in n
+ 
     # Load datasets.
     data_loader, class_mask = build_continual_dataloader(batch_size=cfg.dtask.batch_size)
     log('class_mask %s ' % class_mask)
     log('Number of classes %d ' % cfg.dtask.nb_classes)
-
-    # Define net_g
+ 
+    # `net_g` wraps a frozen copy of the backbone and exposes target-class
+    # softmax probabilities; it is only used to compute Jacobians (via
+    # `torch.func.jacrev`) for the closed-form linearized update.
     backbone = copy.deepcopy(vit_model)
     net_g = Net(backbone)
     net_g.to(cfg.device)
     net_g.eval()
-
-    tuning_params = dict()
-    for n,p in net_g.named_parameters():
-        if 'l_ff' in n:
-            tuning_params[n] = p
-        if 'l_k' in n:
-            tuning_params[n] = p
-        if 'l_v' in n:
-            tuning_params[n] = p
-    
+ 
+    tuning_params = collect_ia3_params(net_g)
     log("Tuning parameters are")
-    # log(tuning_params)
-    for k in tuning_params.keys():
-        log(f"{k} : {tuning_params[k].shape}")
-
-    #Define the wrapped function that works with `torch.func.jacrev`
+    for k, v in tuning_params.items():
+        log(f"{k} : {v.shape}")
+ 
+    head_params = sum(p.numel() for n, p in vit_model.named_parameters() if p.requires_grad and "head" in n)
+    ia3_params = sum(p.numel() for n, p in net_g.named_parameters() if is_ia3_param(n))
+    log(f"Head trainable params: {head_params}")
+    log(f"IA3 trainable params: {ia3_params}")
+    log(f"Total trainable params (IA3 + head): {head_params + ia3_params}")
+ 
     def wrapped_g(params, X, target):
-        """Wraps the neural network g while keeping its structure intact using functional_call."""
-        out = functional_call(net_g, params, (X,target))
-        return out
-    
-    jacobian_fn = jacrev(wrapped_g, argnums = 0) 
-    global_At_A = dict()
-    global_AtA_w = dict()
+        """Wraps `net_g` so that `torch.func.jacrev` can differentiate w.r.t. `params`."""
+        return functional_call(net_g, params, (X, target))
+ 
+    jacobian_fn = jacrev(wrapped_g, argnums=0)
+ 
+    global_At_A = {layer: torch.zeros((p.size(-1), p.size(-1)), device=cfg.device)
+                   for layer, p in tuning_params.items()}
+    global_AtA_w = {layer: torch.zeros(p.size(-1), device=cfg.device)
+                     for layer, p in tuning_params.items()}
     AtA_ridge = dict()
-    for layer in tuning_params.keys():
-        size = tuning_params.get(layer).size(-1)
-        global_At_A[layer] = torch.zeros((size, size)).to(cfg.device)
-        global_AtA_w[layer] = torch.zeros((size)).to(cfg.device)
-
+ 
     previous_global_update = None
     count_save, batch_idx = 0, 0
     COOLDOWN_LIMIT = cfg.signature.cooldown_limit
     cooldown = COOLDOWN_LIMIT
-    is_converged = False 
-    class_mask = dict()
-    mahal_history = dict()
-    mahal_history[count_save] = list()
+    is_converged = False
+    task_class_mask = dict()
+    mahal_history = {count_save: []}
     within_seen_classes = set()
+ 
     criterion = torch.nn.CrossEntropyLoss().to(cfg.device)
-    optimizer = optim.Adam(vit_model.parameters(), lr=0.001)
-    online_gauss = OnlineDiagonalGMM(n_clusters=cfg.signature.n_clusters, feature_dim=768, device="cpu", 
-                                     split_threshold=cfg.signature.split_threshold, cfg=cfg)
-
+    optimizer = optim.Adam(vit_model.parameters(), lr=HEAD_LR)
+    online_gauss = OnlineDiagonalGMM(n_clusters=cfg.signature.n_clusters, feature_dim=768, device="cpu",
+                                      split_threshold=cfg.signature.split_threshold, cfg=cfg)
+    log_gmm_summary(online_gauss)
+ 
     for task_id in tasks:
-        for (input, target) in (data_loader[task_id]["train"]):       
-            input, target = input.to(cfg.device), target.to(cfg.device)     
+        log(f"Task {task_id}: {len(data_loader[task_id]['train'])} training batches")
+ 
+    for task_id in tasks:
+        for (input, target) in data_loader[task_id]["train"]:
+            input, target = input.to(cfg.device), target.to(cfg.device)
             new_classes = torch.unique(target).tolist()
             target_classes = set(new_classes)
+            log(f"New class coming: {new_classes}")
+ 
             vit_model.eval()
-
             with torch.no_grad(), torch.cuda.amp.autocast():
-                temp_features = vit_model(
-                        (input)
-                )['pre_logits'].cpu()
-                
-            # Compute mahalanobis distance. Same as learning Online GMM.
-            diff = temp_features[:, None, :] - online_gauss.means[None, :, :]
-            mahal = (diff ** 2 / online_gauss.vars[None, :, :]).sum(dim=2)
-            weights = online_gauss.counts / (online_gauss.counts.sum() + 1e-6)
-            prior = -torch.log(weights + online_gauss.min_cluster_weight)
-            scores = mahal + prior
-            min_score = torch.min(scores, dim=1).values
-            mean_ood = min_score.mean()
+                temp_features = vit_model(input)['pre_logits'].cpu()
+ 
+            # Routing / change-point score: min Mahalanobis-plus-prior
+            # distance to the current task key (Eq. for S_t(z) in the paper).
+            mean_ood = online_gauss.score(temp_features).mean()
             mahal_history[count_save].append(mean_ood)
-            
             log(f"Task {count_save}, Batch {batch_idx}, mean_ood: {mean_ood}")
-
+ 
             if cooldown > 0:
                 cooldown -= 1
                 log(f"[Cooldown active] Skipping detection... {cooldown} left")
-                within_seen_classes = within_seen_classes | target_classes # update seen classes before converging
+                within_seen_classes |= target_classes  # update seen classes before converging
             else:
-                if (not is_converged): # start detecting
-                    within_seen_classes = within_seen_classes | target_classes # still update seen classes before converging
+                if not is_converged:  # start detecting
+                    within_seen_classes |= target_classes  # still update seen classes before converging
                     values_t = torch.tensor(mahal_history[count_save])
-                    converged, converged_idx = detect_convergence_stationary_streaming(values_t, window=cfg.signature.window_t, 
-                                                                                       k=cfg.signature.k, cool_down=COOLDOWN_LIMIT)
+                    converged, converged_idx = detect_convergence_stationary_streaming(
+                        values_t, window=cfg.signature.window_t, k=cfg.signature.k, cool_down=COOLDOWN_LIMIT)
                     if converged:
                         is_converged = True
                         converged_value = values_t[converged_idx].item() if converged_idx is not None else None
                         log("Convergence starts at index: %d" % converged_idx)
-                        log("Value at convergence: %d " % converged_value )
-            
-                # after convergence, if new classes come then we mark it as a new coming dist.
-                elif is_converged and (not target_classes.issubset(within_seen_classes)): 
+                        log("Value at convergence: %s " % converged_value)
+ 
+                # After convergence, if new classes come then we mark this as a new incoming distribution.
+                elif is_converged and not target_classes.issubset(within_seen_classes):
                     log(f"Distribution {count_save}-th is detected at batch {batch_idx} with mean_ood: {mean_ood}")
-                    log(f"New coming classes: %s " % new_classes)
-                    checkpoint_path = os.path.join(cfg.dtask.output_dir, f'ia3_task_{count_save}')
-                    Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
-                    torch.save(global_At_A, checkpoint_path + '/global_At_A.pth')
-                    torch.save(global_AtA_w, checkpoint_path + '/global_AtA_w.pth')
-                    torch.save(online_gauss.means, checkpoint_path + '/mean.pth')
-                    torch.save(online_gauss.vars, checkpoint_path + '/vars.pth')
-                    torch.save(online_gauss.counts, checkpoint_path + '/counts.pth')
-                    torch.save(previous_global_update, checkpoint_path + '/global_updates.pth')
-                    class_mask[count_save] = list(within_seen_classes)
-                    # reset everything
+                    log(f"New coming classes: {new_classes}")
+ 
+                    save_task_checkpoint(cfg.dtask.output_dir, count_save, global_At_A, global_AtA_w,
+                                          online_gauss, global_updates=previous_global_update)
+                    task_class_mask[count_save] = list(within_seen_classes)
+ 
+                    # Reset everything for the next distribution.
                     within_seen_classes = set()
                     is_converged = False
-                    mahal_history[count_save + 1] = list()
+                    mahal_history[count_save + 1] = []
                     cooldown = COOLDOWN_LIMIT
-
                     for layer in tuning_params.keys():
                         global_At_A[layer].zero_()
                         global_AtA_w[layer].zero_()
-                    
-                    for n,p in vit_model.named_parameters():
-                        if 'l_ff' in n:
-                            with torch.no_grad():
-                                n_updated = 'model.' + n
-                                p.copy_(torch.ones(p.shape).to(cfg.device))
-                        if 'l_k' in n:
-                            with torch.no_grad():
-                                n_updated = 'model.' + n
-                                p.copy_(torch.ones(p.shape).to(cfg.device))
-                        if 'l_v' in n:
-                            with torch.no_grad():                    
-                                n_updated = 'model.' + n
-                                p.copy_(torch.ones(p.shape).to(cfg.device) )
-
+                    reset_ia3_to_identity(vit_model, cfg.device)
                     online_gauss.reset()
-                    optimizer = optim.Adam(vit_model.parameters(), lr=0.001)
+                    optimizer = optim.Adam(vit_model.parameters(), lr=HEAD_LR)
                     count_save += 1
                     batch_idx = 0
-
-            # Tuning classification head for ViT.
-            train_stats = train_one_batch(model=vit_model, criterion=criterion,
-                                          input=input, target=target, optimizer=optimizer,
-                                          device=cfg.device, max_norm=1.0,
-                                          set_training_mode=True, task_id=count_save, class_mask=new_classes )
-            
-            # Prepare head to compute closed-form solution.
+ 
+            # Gradient-based warm start of the classification head for the ViT.
+            log(f"Within seen class: {within_seen_classes}")
+            train_one_batch(model=vit_model, criterion=criterion, input=input, target=target,
+                             optimizer=optimizer, device=cfg.device, max_norm=1.0,
+                             set_training_mode=True, task_id=count_save, class_mask=new_classes)
+ 
+            # Sync the (just-updated) head into the Jacobian-computation
+            # copies before solving the closed-form update.
             with torch.no_grad():
                 net_g.model.head.weight.copy_(vit_model.head.weight)
                 net_g.model.head.bias.copy_(vit_model.head.bias)
                 backbone.head.weight.copy_(vit_model.head.weight)
                 backbone.head.bias.copy_(vit_model.head.bias)
-
-            for n, p in net_g.named_parameters():
+            for p in net_g.parameters():
                 p.requires_grad = False
-
-            # Compute closed-form solution.
-            global_updates = tangent_tuning_a_batch(batch_idx, input, target,
-                                                        global_At_A, global_AtA_w, AtA_ridge,
-                                                        net_g, jacobian_fn,
-                                                        vit_model, tuning_params, backbone,
-                                                        eta = 0.03, lambda_=1)
-            
-            # Compute global update accuracies on the current batch.
-            for n,p in vit_model.named_parameters():
-                if 'l_ff' in n:
-                    with torch.no_grad():
-                        n_updated = 'model.' + n
-                        p.copy_(torch.ones(p.shape).to(cfg.device) + global_updates[n_updated].reshape(p.shape).to(cfg.device))
-                if 'l_k' in n:
-                    with torch.no_grad():
-                        n_updated = 'model.' + n
-                        p.copy_(torch.ones(p.shape).to(cfg.device) + global_updates[n_updated].reshape(p.shape).to(cfg.device))
-                if 'l_v' in n:
-                    with torch.no_grad():
-                        n_updated = 'model.' + n
-                        p.copy_(torch.ones(p.shape).to(cfg.device) + global_updates[n_updated].reshape(p.shape).to(cfg.device))
-
+ 
+            # Closed-form linearized IA3 update (Eq. "ridge-sol" in the paper).
+            global_updates = tangent_tuning_a_batch(
+                input, target, global_At_A, global_AtA_w, AtA_ridge, net_g, jacobian_fn,
+                vit_model, tuning_params, backbone, eta=TANGENT_ETA, lambda_=TANGENT_RIDGE_LAMBDA)
+            apply_ia3_updates(vit_model, global_updates, cfg.device)
+ 
+            # Accuracy of the global update on the current batch (classes outside
+            # this batch are masked out, since task identity is unknown).
             with torch.no_grad():
-                out = vit_model((input))["logits"]
-                if new_classes is not None:
-                    mask = new_classes
-                    not_mask = np.setdiff1d(np.arange(cfg.dtask.nb_classes), mask)
-                    not_mask = torch.tensor(not_mask, dtype=torch.int64).to(cfg.device)
-                    out = out.index_fill(dim=1, index=not_mask, value=float('-inf'))
-                    
-                acc1, acc5 = accuracy(out, target, topk=(1,5))
+                out = vit_model(input)["logits"]
+                not_mask = np.setdiff1d(np.arange(cfg.dtask.nb_classes), new_classes)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(cfg.device)
+                out = out.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                acc1, acc5 = accuracy(out, target, topk=(1, 5))
             log(f"GLOBAL UPDATES ON BATCH {batch_idx} is: {acc1}")
-
-            if (cfg.run_label == "VTAB5T-large") and (batch_idx > 2000):
-                pass
-            else:
-                with torch.no_grad():
-                    features = vit_model(input)['pre_logits'].cpu()
-                
-                online_gauss.update(features, batch_idx)
-                
+ 
+            with torch.no_grad():
+                features = vit_model(input)['pre_logits'].cpu()
+            online_gauss.update(features, batch_idx)
+ 
             previous_global_update = global_updates
             batch_idx += 1
-
-    # Last save after final batch of last task
-    checkpoint_path = os.path.join(cfg.dtask.output_dir, f'ia3_task_{count_save}')
-    Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
-    torch.save(global_At_A, checkpoint_path + '/global_At_A.pth')
-    torch.save(global_AtA_w, checkpoint_path + '/global_AtA_w.pth')
-    torch.save(online_gauss.means, checkpoint_path + '/mean.pth')
-    torch.save(online_gauss.vars, checkpoint_path + '/vars.pth')
-    torch.save(online_gauss.counts, checkpoint_path + '/counts.pth')
-    torch.save(global_updates, checkpoint_path + '/global_updates.pth')
-    torch.save(vit_model.head.weight, checkpoint_path + '/head_weight.pth')
-    torch.save(vit_model.head.bias, checkpoint_path + '/head_bias.pth')
-    torch.save(mahal_history, checkpoint_path + '/mahal_history.pth')
-    class_mask[count_save] = list(within_seen_classes)
-    torch.save(class_mask, cfg.dtask.output_dir + '/class_mask.pth')
+ 
+        # Evaluation at the end of each task.
+        with torch.no_grad():
+            temp_class_mask = task_class_mask
+            temp_class_mask[count_save] = list(within_seen_classes)
+            task_test_stats = evaluate_at_task(
+                vit_model.head.weight, vit_model.head.bias, previous_global_update,
+                online_gauss.means, online_gauss.vars, online_gauss.counts,
+                data_loader, temp_class_mask, task_id, cfg)
+            log(f"Global Acc Matrix after truth (Not predicted) task {task_id} : \n {task_test_stats['acc_matrix']}")
+ 
+    # Final checkpoint after the last batch of the last task.
+    save_task_checkpoint(cfg.dtask.output_dir, count_save, global_At_A, global_AtA_w, online_gauss,
+                          global_updates=global_updates, head_weight=vit_model.head.weight,
+                          head_bias=vit_model.head.bias, mahal_history=mahal_history)
+    task_class_mask[count_save] = list(within_seen_classes)
+    torch.save(task_class_mask, os.path.join(cfg.dtask.output_dir, 'class_mask.pth'))
 
 def main():
     parser = argparse.ArgumentParser(description='TANGENT FINETUNING in Continual Learning')
@@ -295,7 +267,25 @@ def main():
     if args.cfg_file is not None:
         cfg_from_file(args.cfg_file)
 
+    log_dir = "logs"
+    os.makedirs(cfg.dtask.output_dir, exist_ok=True)
+
+    final_filename = os.path.join(
+        log_dir,
+        f"{cfg_name}_seed{cfg.seed}_nc{cfg.signature.n_clusters}_k{cfg.signature.k}_wt{cfg.signature.window_t}_more_trial.log"
+    )
+    logging.basicConfig(
+        filename=final_filename,
+        filemode="a",
+        level=logging.DEBUG,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True
+    )
+    logging.getLogger("PIL").setLevel(logging.WARNING)
     log(pprint.pformat(cfg))
+
+    cfg.output_dir = os.path.join(cfg.dtask.output_dir, f"{cfg_name}_seed_{cfg.seed}")
 
     gpu_list = cfg.gpu_ids.split(',')
     gpus = [int(iter) for iter in gpu_list]

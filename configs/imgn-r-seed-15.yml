@@ -37,7 +37,7 @@ dtask:
   data_path: './local_datasets/'
   dataset: 'Imagenet-R'
   shuffle: True
-  output_dir: 'outputs_split_imgn_r_seed_15/'
+  output_dir: 'results/outputs_split_imgn_r_seed_15/'
   num_workers: 4
   train_mask: True
   task_inc: False

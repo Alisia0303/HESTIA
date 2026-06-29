@@ -37,7 +37,7 @@ dtask:
   data_path: './local_datasets/'
   dataset: 'Split-CIFAR100'
   shuffle: True
-  output_dir: 'outputs_cifar_100_seed_15'
+  output_dir: 'results/outputs_cifar_100_seed_15/'
   num_workers: 4
   train_mask: True
   task_inc: False
@@ -50,7 +50,7 @@ dtask:
 
 # Signature learning parameters
 signature:
-  cooldown_limit: 5
+  cooldown_limit: 50
   n_clusters: 8
   split_threshold: 0.2
   window_t: 10
