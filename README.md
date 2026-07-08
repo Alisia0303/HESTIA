@@ -54,7 +54,7 @@ python main.py --cfg configs/imgn-r-seed-15.yml
 python main.py --cfg configs/vtab-large-seed-25.yml
 ```
 
-> **Note on VTAB5T:** this dataset must be downloaded manually from **[placeholder for link VTAB5T-large]** and placed into `./local_datasets/vtab_data/` before running the corresponding config.
+> **Note on VTAB5T:** this dataset must be downloaded manually from https://github.com/google-research/task_adaptation and placed into `./local_datasets/vtab_data/` before running the corresponding config.
 
 Each config file specifies the dataset, streaming protocol, backbone, and HESTIA-specific hyperparameters (ridge coefficient, change-point window/tolerance, number of Gaussian mixture components, etc.) used in our experiments.
 
@@ -70,10 +70,10 @@ If you find this code useful in your research, please cite our paper:
 @inproceedings{
 anonymous2026taskfree,
 title={Task-Free Continual Learning via Order-Invariant Linearized Adaptation and Density-Guided Adapter Routing},
-author={},
+author={Anonymous},
 booktitle={Forty-Second Annual Conference on Uncertainty in Artificial Intelligence},
 year={2026},
-url={}
+url={https://openreview.net/forum?id=Gu542jC262}
 }
 ```
 
