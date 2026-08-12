@@ -8,9 +8,7 @@ Welcome to the official code repository for **"Task-Free Continual Learning via 
 <sup>2</sup>University of Science, VNU-HCM, Ho Chi Minh City, Vietnam
 <sup>3</sup>Princeton University, Princeton, New Jersey, USA
 
-[Paper (coming soon)]() | [OpenReview](https://openreview.net/forum?id=Gu542jC262)
-
-> 📌 **Note:** Our paper has been accepted to UAI 2026, but the camera-ready version has not been submitted yet. The paper link and citation below will be updated once the camera-ready is available.
+[Paper](https://proceedings.mlr.press/v337/le26a.html) | [OpenReview](https://openreview.net/forum?id=Gu542jC262)
 
 ## 📜 Abstract
 
@@ -67,17 +65,23 @@ HESTIA consistently achieves state-of-the-art accuracy and the lowest forgetting
 If you find this code useful in your research, please cite our paper:
 
 ```bibtex
-@inproceedings{
-anonymous2026taskfree,
-title={Task-Free Continual Learning via Order-Invariant Linearized Adaptation and Density-Guided Adapter Routing},
-author={Anonymous},
-booktitle={Forty-Second Annual Conference on Uncertainty in Artificial Intelligence},
-year={2026},
-url={https://openreview.net/forum?id=Gu542jC262}
+@InProceedings{pmlr-v337-le26a,
+  title = 	 {Task-Free Continual Learning via Order-Invariant Linearized Adaptation and Density-Guided Adapter Routing},
+  author =       {Le, Hang Thi-Thuy and Nguyen, Nam-Quan and Nguyen, Lam-Huy and Dinh, Dien and Hoang, Minh and Hoang, Trong Nghia},
+  booktitle = 	 {Proceedings of the 42nd Conference on Uncertainty in Artificial Intelligence},
+  pages = 	 {3274--3297},
+  year = 	 {2026},
+  editor = 	 {Perković, Emilija and Malinsky, Daniel},
+  volume = 	 {337},
+  series = 	 {Proceedings of Machine Learning Research},
+  month = 	 {17--21 Aug},
+  publisher =    {PMLR},
+  pdf = 	 {https://raw.githubusercontent.com/mlresearch/v337/main/assets/le26a/le26a.pdf},
+  url = 	 {https://proceedings.mlr.press/v337/le26a.html},
+  abstract = 	 {Task-free continual learning (TFCL) aims to adapt models to non-stationary data streams without knowing task boundaries. In TFCL, catastrophic forgetting arises from both the evolving data distributions and the order-sensitive nature of batch-streaming optimization. To address these challenges, we propose a new TFCL framework that mitigates optimization-induced forgetting via order-invariant linearized adaptation during learning and accommodates evolving data distributions via density-guided adapter routing for more accurate and effective adapter retrieval during inference. We also provide a theoretical characterization of retrieval error in terms of density estimation quality and cross-adapter embedding separability. Experiments across multiple benchmarks demonstrate that our proposed method consistently achieves higher accuracy and lower forgetting than strong TFCL baselines under both standard and realistic streaming settings. For reproducibility, our experimental code is available at: https://github.com/Alisia0303/HESTIA.git .}
 }
-```
 
-*(Full citation details, including author list and OpenReview link, will be updated upon camera-ready submission.)*
+```
 
 ## 🙏 Acknowledgement
 
