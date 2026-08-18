@@ -56,6 +56,51 @@ python main.py --cfg configs/vtab-large-seed-25.yml
 
 Each config file specifies the dataset, streaming protocol, backbone, and HESTIA-specific hyperparameters (ridge coefficient, change-point window/tolerance, number of Gaussian mixture components, etc.) used in our experiments.
 
+## 📈 Running Baselines
+
+We provide the codebase to reproduce the baseline methods evaluated in our paper inside the `baselines/` directory. 
+
+### 1. L2P and DualPrompt
+The L2P and DualPrompt baselines are implemented via the HiDe-Prompt codebase.
+
+```bash
+cd baselines/HiDe-Prompt/
+
+# Split CIFAR-10
+python -m main cifar10_l2p --seed 15
+python -m main cifar10_dualprompt --seed 15
+
+# Split CIFAR-100
+python -m main cifar100_l2p --seed 15
+python -m main cifar100_dualprompt --seed 15
+
+# Split ImageNet-R
+python -m main imr_l2p --seed 15
+python -m main imr_dualprompt --seed 15
+
+# VTAB5T
+python -m main vtab5t_large_l2p --seed 15
+python -m main vtab5t_large_dualprompt --seed 15
+```
+
+### 2. RanPAC
+
+```bash
+cd baselines/RanPAC/
+
+# Split CIFAR-10
+python -m main --cfg './config/cifar-10-seed-15-ranpac.yml'
+
+# Split CIFAR-100
+python -m main --cfg './config/cifar-100-seed-15-ranpac.yml'
+
+# Split ImageNet-R
+python -m main --cfg './config/imgn-r-seed-15-ranpac.yml'
+
+# VTAB5T
+python -m main --cfg './config/vtab-large-seed-15-ranpac.yml'
+```
+
 ## 📊 Results
 
 HESTIA consistently achieves state-of-the-art accuracy and the lowest forgetting across all evaluated benchmarks (Split CIFAR-10/100, Split ImageNet-R, VTAB5T) while using fewer trainable parameters than competing Transformer-based TFCL baselines. Please refer to the paper for detailed comparisons, ablations, and theoretical analysis.
