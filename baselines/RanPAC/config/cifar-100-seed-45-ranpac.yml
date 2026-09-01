@@ -1,0 +1,63 @@
+# General Configurations
+run_label: 'CIFAR-100'
+gpu_ids: '0'
+verbose: False
+seed: 45
+
+# Downstream-Task Config
+dtask:
+  nb_classes: 100
+  batch_size: 16
+  epochs: 5
+  model: 'vit_base_patch16_224'
+  input_size: 224
+  pretrained: True
+  drop: 0.0
+  drop_path: 0.0
+  opt: 'adam'
+  clip_grad: 1.0
+  momentum: 0.9
+  weight_decay: 0.0
+  reinit_optimizer: True
+  sched: 'constant'
+  lr: 0.001
+  lr_noise_pct: 0.67
+  lr_noise_std: 1.0
+  decay_epochs: 30
+  warmup_epochs: 5
+  cooldown_epochs: 10
+  patience_epochs: 10
+  decay_rate: 0.1
+  unscale_lr: True
+  smoothing: 0.1
+  train_interpolation: 'bicubic'
+  reprob: 0.0
+  remode: 'pixel'
+  recount: 1
+  data_path: './local_datasets/'
+  dataset: 'Split-CIFAR100'
+  shuffle: False
+  output_dir: 'outputs_cifar_100_seed_45_ranpac_task_free/'
+  num_workers: 4
+  train_mask: True
+  task_inc: False
+  initializer: 'uniform'
+  predefined_key: ''
+  pull_constraint: True
+  pull_constraint_coeff: 0.1
+  global_pool: 'token'
+  freeze: ['blocks', 'patch_embed', 'cls_token', 'norm', 'pos_embed']
+  added_units: 4
+  reg_weight: 0.006
+  alpha: 0.3
+  n_components: 20
+  weight_concentration_prior: 0.1
+# Continual Learning parameters
+continual:
+  task: 'cifar-100'
+  rebuild_dataset: False
+  shuffle_task: False
+  shuffle_datapoints: False
+  n_tasks: 20
+  
+

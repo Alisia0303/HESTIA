@@ -1,0 +1,38 @@
+**For CIFAR-100 with L2P**
+CUDA_VISIBLE_DEVICES=1 python -m torch.distributed.launch \
+        --master_port='29503' \
+        --use_env main.py \
+        cifar100_l2p \
+        --model vit_base_patch16_224 \
+        --original_model vit_base_patch16_224 \
+        --batch-size 16 \
+        --data-path ../local_datasets/\
+        --output_dir ./output \
+        --seed 15 \
+        --epochs 5
+
+**For CIFAR-100 with Dual Prompt**
+CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch \
+        --master_port='29403' \
+        --use_env main.py \
+        cifar100_dualprompt \
+        --model vit_base_patch16_224 \
+        --original_model vit_base_patch16_224 \
+        --batch-size 16 \
+        --data-path ../local_datasets/\
+        --output_dir ./output \
+        --seed 15 \
+        --epochs 5
+
+**For CIFAR-100 with Sprompt**
+CUDA_VISIBLE_DEVICES=1 python -m torch.distributed.launch \
+        --master_port='29303' \
+        --use_env main.py \
+        cifar100_sprompt_5e \
+        --model vit_base_patch16_224 \
+        --original_model vit_base_patch16_224 \
+        --batch-size 16 \
+        --data-path ../local_datasets/\
+        --output_dir ./output \
+        --seed 15 \
+        --epochs 5
