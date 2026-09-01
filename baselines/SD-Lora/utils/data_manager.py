@@ -4,22 +4,33 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
-from utils.data import iCIFAR10, iCIFAR100, iImageNet100, iImageNet1000, iCIFAR224, iImageNetR,iImageNetA,CUB, objectnet, omnibenchmark, vtab
+from utils.data import iCIFAR10, iCIFAR100, iImageNet100, iImageNet1000, iCIFAR224, iImageNetR,iImageNetA,\
+                        CUB, objectnet, omnibenchmark, vtab, EuroSAT, Resisc, PatchCamelyon, Pets, Flowers
 from tqdm import tqdm
-from torch.utils.data import Dataset
-from PIL import Image
-
 
 class DataManager(object):
     def __init__(self, dataset_name, shuffle, seed, init_cls, increment, args):
         self.args = args
         self.dataset_name = dataset_name
-        self._setup_data(dataset_name, shuffle, seed)
-        assert init_cls <= len(self._class_order), "No enough classes."
-        self._increments = [init_cls]
-        while sum(self._increments) + increment < len(self._class_order):
-            self._increments.append(increment)
-        offset = len(self._class_order) - sum(self._increments)
+        if self.dataset_name == "VTAB_large":
+            self._setup_data_vtab(dataset_name, shuffle, seed)
+            len_class_order = 0
+            for item in self._class_order:
+                len_class_order += len(self._class_order[item])
+
+            assert init_cls <= len_class_order, 'No enough classes.'
+            # self._increments = [init_cls]
+            # while sum(self._increments) + increment < len_class_order:
+            #     self._increments.append(increment)
+            self._increments = [10, 102, 37, 2, 45]
+            offset = len_class_order - sum(self._increments)
+        else:
+            self._setup_data(dataset_name, shuffle, seed)
+            assert init_cls <= len(self._class_order), "No enough classes."
+            self._increments = [init_cls]
+            while sum(self._increments) + increment < len(self._class_order):
+                self._increments.append(increment)
+            offset = len(self._class_order) - sum(self._increments)
         if offset > 0:
             self._increments.append(offset)
             
@@ -72,6 +83,66 @@ class DataManager(object):
             data.append(class_data)
             targets.append(class_targets)
 
+        if appendent is not None and len(appendent) != 0:
+            appendent_data, appendent_targets = appendent
+            data.append(appendent_data)
+            targets.append(appendent_targets)
+
+        data, targets = np.concatenate(data), np.concatenate(targets)
+
+        if ret_data:
+            return data, targets, DummyDataset(data, targets, trsf, self.use_path)
+        else:
+            return DummyDataset(data, targets, trsf, self.use_path)
+        
+    def get_dataset_vtab(
+        self, indices, names, cur_task, source, mode, appendent=None, ret_data=False, m_rate=None
+    ):
+        name = names[cur_task]
+        if source == "train":
+            if cur_task == 0:
+                x, y = self._train_data[name], self._train_targets[name]
+            else:
+                keys = list(self._train_targets.keys())
+                x, y = np.concatenate([self._train_data[key] for key in keys[:cur_task+1]]), np.concatenate([self._train_targets[key] + np.min(self._class_order[key]) for key in keys[:cur_task+1]])
+            # import pdb; pdb.set_trace()
+        elif source == "test":
+            if cur_task == 0:
+                x, y = self._test_data[name], self._test_targets[name]
+            else:
+                keys = list(self._test_targets.keys())
+                x, y = np.concatenate([self._test_data[key] for key in keys[:cur_task+1]]), np.concatenate([self._test_targets[key] + np.min(self._class_order[key]) for key in keys[:cur_task+1]])
+                # import pdb; pdb.set_trace()
+        else:
+            raise ValueError("Unknown data source {}.".format(source))
+
+        if mode == "train":
+            trsf = transforms.Compose([*self._train_trsf, *self._common_trsf])
+        elif mode == "flip":
+            trsf = transforms.Compose(
+                [
+                    *self._test_trsf,
+                    transforms.RandomHorizontalFlip(p=1.0),
+                    *self._common_trsf,
+                ]
+            )
+        elif mode == "test":
+            trsf = transforms.Compose([*self._test_trsf, *self._common_trsf])
+        else:
+            raise ValueError("Unknown mode {}.".format(mode))
+
+        data, targets = [], []
+        for idx in indices:
+            if m_rate is None:
+                # if cur_task > 0:
+                class_data, class_targets = self._select(x, y, low_range=idx, high_range=idx + 1)
+                # else:
+                #     class_data, class_targets = self._select(x, y, low_range=idx, high_range=idx + 1)
+            else:
+                class_data, class_targets = self._select_rmm(x, y, low_range=idx, high_range=idx + 1, m_rate=m_rate)
+            data.append(class_data)
+            targets.append(class_targets)
+        # import pdb; pdb.set_trace()
         if appendent is not None and len(appendent) != 0:
             appendent_data, appendent_targets = appendent
             data.append(appendent_data)
@@ -170,6 +241,46 @@ class DataManager(object):
         )
         self._test_targets = _map_new_class_index(self._test_targets, self._class_order)
 
+    def _setup_data_vtab(self):
+        
+        self._train_data = {}
+        self._train_targets = {}
+        self._test_data = {}
+        self._test_targets = {}
+        self.use_path = {}
+        self._class_order = {}
+        for count, name in enumerate(['eurosat', 'oxford_flowers102', 'oxford_iiit_pet', 'patch_camelyon', 'resisc45']):
+            idata = _get_idata(name, False)
+            idata.download_data()
+
+            # Data
+            self._train_data[name], self._train_targets[name] = idata.train_data, idata.train_targets
+            self._test_data[name], self._test_targets[name] = idata.test_data, idata.test_targets
+            self.use_path[name] = idata.use_path
+
+            # Transforms
+            self._train_trsf = idata.train_trsf
+            self._test_trsf = idata.test_trsf
+            self._common_trsf = idata.common_trsf
+
+            # Order
+            if count > 0:
+                order = [i + current_idx for i in range(len(np.unique(self._train_targets[name])))]
+            else:
+                order = [i for i in range(len(np.unique(self._train_targets[name])))]
+            
+            current_idx = order[-1] + 1
+            
+            # order = idata.class_order
+            self._class_order[name] = order
+            logging.info(self._class_order[name])
+
+    def get_total_classnum_vtab(self):
+        num = 0
+        for task in self._class_order:
+            num += len(task)
+        return num
+
     def _select(self, x, y, low_range, high_range):
         idxes = np.where(np.logical_and(y >= low_range, y < high_range))[0]
         return x[idxes], y[idxes]
@@ -190,11 +301,6 @@ class DataManager(object):
     def getlen(self, index):
         y = self._train_targets
         return np.sum(np.where(y == index))
-
-
-
-
-
 
 class BatchTaskDataManager:
     """
@@ -290,182 +396,6 @@ class BatchTaskDataManager:
 
         return DummyDataset(images, labels, trsf, self.base_dm.use_path)
 
-class TaskFreeDataset(Dataset):
-    def __init__(self, images, labels, task_ids, trsf, use_path):
-        self.images = images
-        self.labels = labels
-        self.task_ids = task_ids
-        self.trsf = trsf
-        self.use_path = use_path
-
-    def __len__(self):
-        return len(self.labels)
-
-    def __getitem__(self, idx):
-        x = self.images[idx]
-        y = self.labels[idx]
-        t = self.task_ids[idx]
-
-        if self.use_path:
-            x = Image.open(x).convert("RGB")
-        else:
-            x = Image.fromarray(x)
-
-        if self.trsf is not None:
-            x = self.trsf(x)
-
-        return x, y, t
-
-
-class TaskFreeDataManager(object):
-    """
-    Task-Free version of DataManager
-    - SAME init signature
-    - Batch = learning unit
-    - No task mixing
-    - Real task_id returned per sample
-    """
-
-    def __init__(self, dataset_name, shuffle, seed, init_cls, increment, args):
-        self.args = args
-        self.dataset_name = dataset_name
-        self.shuffle = shuffle
-        self.seed = seed
-
-        self.batch_size = args["batch_size"]
-        self.classes_per_task = 5
-
-        self._setup_data(dataset_name, shuffle, seed)
-        self._build_stream()
-        self._build_test_sets()
-    
-    def _setup_data(self, dataset_name, shuffle, seed):
-        idata = _get_idata(dataset_name, self.args)
-        idata.download_data()
-
-        self._train_data, self._train_targets = idata.train_data, idata.train_targets
-        self._test_data, self._test_targets = idata.test_data, idata.test_targets
-        self.use_path = idata.use_path
-
-        self._train_trsf = idata.train_trsf
-        self._test_trsf = idata.test_trsf
-        self._common_trsf = idata.common_trsf
-
-        order = [i for i in range(len(np.unique(self._train_targets)))]
-        if shuffle:
-            order = np.random.permutation(len(order)).tolist()
-        else:
-            order = idata.class_order
-
-        self._class_order = order
-        logging.info(self._class_order)
-
-        self._train_targets = _map_new_class_index(self._train_targets, order)
-        self._test_targets = _map_new_class_index(self._test_targets, order)
-
-        self.nb_classes = len(order)
-        self.nb_real_tasks = int(np.ceil(self.nb_classes / self.classes_per_task))
-        print(self.nb_classes, self.nb_real_tasks)
-
-        
-        
-    def _build_stream(self):
-        self.batches = []
-        self.batch_task_ids = []
-
-        for task_id in range(self.nb_real_tasks):
-            cls_start = task_id * self.classes_per_task
-            cls_end = min(cls_start + self.classes_per_task, self.nb_classes)
-
-            # --------------------------------------------------
-            # 1. Select ALL samples of this task (class-based)
-            # --------------------------------------------------
-            task_classes = self._class_order[cls_start:cls_end]
-            
-            task_indices = np.where(
-                np.isin(self._train_targets, task_classes)
-            )[0]
-            # --------------------------------------------------
-            # 2. FULL SHUFFLE → label-mixed batches guaranteed
-            # --------------------------------------------------
-            if self.shuffle:
-                np.random.shuffle(task_indices)
-
-            # --------------------------------------------------
-            # 3. Arbitrary slicing → task-free batches
-            # --------------------------------------------------
-            for start in range(0, len(task_indices), self.batch_size):
-                batch_indices = task_indices[start : start + self.batch_size]
-                self.batches.append(batch_indices)
-                self.batch_task_ids.append(task_id)
-        self._nb_tasks = len(self.batches)
-
-
-    def _build_test_sets(self):
-        trsf = transforms.Compose([
-            *self._test_trsf,
-            *self._common_trsf,
-        ])
-
-        self.full_test_dataset = TaskFreeDataset(
-            self._test_data,
-            self._test_targets,
-            task_ids=np.full(len(self._test_targets), -1),
-            trsf=trsf,
-            use_path=self.use_path,
-        )
-
-        self.task_test_datasets = {}
-
-        for task_id in range(self.nb_real_tasks):
-            cls_start = task_id * self.classes_per_task
-            cls_end = min(cls_start + self.classes_per_task, self.nb_classes)
-
-            task_classes = self._class_order[cls_start:cls_end]
-            task_indices = np.where(
-                np.isin(self._test_targets, task_classes)
-            )[0]
-           
-
-            self.task_test_datasets[task_id] = TaskFreeDataset(
-                self._test_data[task_indices],
-                self._test_targets[task_indices],
-                task_ids=np.full(len(task_indices), task_id),
-                trsf=trsf,
-                use_path=self.use_path,
-            )
-    
-    @property
-    def nb_tasks(self):
-        return self._nb_tasks
-
-    def get_task_size(self, task):
-        return len(self.batches[task])
-
-    def get_dataset(self, task, source="train", mode="train"):
-        if source == "test":
-            return self.full_test_dataset
-
-        indices = self.batches[task]
-        task_id = self.batch_task_ids[task]
-
-        trsf = transforms.Compose([
-            *self._train_trsf,
-            *self._common_trsf,
-        ])
-
-        return TaskFreeDataset(
-            self._train_data[indices],
-            self._train_targets[indices],
-            task_ids=np.full(len(indices), task_id),
-            trsf=trsf,
-            use_path=self.use_path,
-        )
-
-    def get_test_dataset(self, task_id):
-        return self.task_test_datasets[task_id]
-
-
 
 
 
@@ -518,6 +448,16 @@ def _get_idata(dataset_name, args=None):
         return omnibenchmark()
     elif name == "vtab":
         return vtab()
+    elif name == "eurosat":
+        return EuroSAT()
+    elif name == "oxford_flowers102":
+        return Flowers()
+    elif name == "oxford_iiit_pet":
+        return Pets()
+    elif name == "patch_camelyon":
+        return PatchCamelyon()
+    elif name == "resisc45":
+        return Resisc()
 
     else:
         raise NotImplementedError("Unknown dataset {}.".format(dataset_name))

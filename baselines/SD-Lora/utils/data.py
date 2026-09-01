@@ -343,3 +343,119 @@ class vtab(iData):
 
         self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
         self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+
+# VTAB5T-large
+class EuroSAT(iData):
+    use_path = True
+    
+    train_trsf = build_transform(True, None)
+    test_trsf = build_transform(False, None)
+    common_trsf = [    ]
+
+    class_order = np.arange(10).tolist()
+
+    def download_data(self):
+        # assert 0, "You should specify the folder of your dataset"
+        train_dir = "./local_datasets/vtab_data/eurosat/train/"
+        test_dir = "./local_datasets/vtab_data/eurosat/test/"
+
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+
+        print(train_dset.class_to_idx)
+        print(test_dset.class_to_idx)
+
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+
+class Flowers(iData):
+    use_path = True
+    
+    train_trsf = build_transform(True, None)
+    test_trsf = build_transform(False, None)
+    common_trsf = [    ]
+
+    class_order = np.arange(102).tolist()
+
+    def download_data(self):
+        # assert 0, "You should specify the folder of your dataset"
+        train_dir = "./local_datasets/vtab_data/oxford_flowers102/train/"
+        test_dir = "./local_datasets/vtab_data/oxford_flowers102/test/"
+
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+
+        print(train_dset.class_to_idx)
+        print(test_dset.class_to_idx)
+
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+
+class Pets(iData):
+    use_path = True
+    
+    train_trsf = build_transform(True, None)
+    test_trsf = build_transform(False, None)
+    common_trsf = [    ]
+
+    class_order = np.arange(37).tolist()
+
+    def download_data(self):
+        # assert 0, "You should specify the folder of your dataset"
+        train_dir = "./local_datasets/vtab_data/oxford_iiit_pet/train/"
+        test_dir = "./local_datasets/vtab_data/oxford_iiit_pet/test/"
+
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+
+        print(train_dset.class_to_idx)
+        print(test_dset.class_to_idx)
+
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+
+class PatchCamelyon(iData):
+    use_path = True
+    
+    train_trsf = build_transform(True, None)
+    test_trsf = build_transform(False, None)
+    common_trsf = [    ]
+
+    class_order = np.arange(2).tolist()
+
+    def download_data(self):
+        # assert 0, "You should specify the folder of your dataset"
+        train_dir = "./local_datasets/vtab_data/patch_camelyon/train/"
+        test_dir = "./local_datasets/vtab_data/patch_camelyon/test/"
+
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+
+        print(train_dset.class_to_idx)
+        print(test_dset.class_to_idx)
+
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+
+class Resisc(iData):
+    use_path = True
+    
+    train_trsf = build_transform(True, None)
+    test_trsf = build_transform(False, None)
+    common_trsf = [    ]
+
+    class_order = np.arange(45).tolist()
+
+    def download_data(self):
+        # assert 0, "You should specify the folder of your dataset"
+        train_dir = "./local_datasets/vtab_data/resisc45/train/"
+        test_dir = "./local_datasets/vtab_data/resisc45/test/"
+
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+
+        print(train_dset.class_to_idx)
+        print(test_dset.class_to_idx)
+
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)

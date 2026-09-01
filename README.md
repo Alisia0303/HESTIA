@@ -108,15 +108,19 @@ cd baselines/SD-Lora/
 
 # Split CIFAR-10
 python main.py --config=./exps/sdlora_c10_task_free.json \
-  >> sdlora_cifar10.log 2>&1 &
+  >> sdlora_cifar10.log 2>&1 
 
 # Split CIFAR-100
 python main.py --config=./exps/sdlora_c100_task_free_20_t.json \
-  >> sdlora_cifar100.log 2>&1 &
+  >> sdlora_cifar100.log 2>&1 
 
 # ImageNet-R
 python main.py --config=./exps/sdlora_ina_task_free_20_t.json \
-  >> sdlora_imagenet_r.log 2>&1 &
+  >> sdlora_imagenet_r.log 2>&1 
+
+# VTAB
+python main.py --config=./exps/sdlora_vtab_task_free_10_t.json \
+  >> sdlora_vtab_r.log 2>&1 
 ```
 
 
