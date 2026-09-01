@@ -107,23 +107,17 @@ python -m main --cfg './config/vtab-large-seed-15-ranpac.yml'
 cd baselines/SD-Lora/
 
 # Split CIFAR-10
-python main.py --config=./configs/cifar-10-seed-15.yml \
+python main.py --config=./exps/sdlora_c10_task_free.json \
   >> sdlora_cifar10.log 2>&1 &
 
 # Split CIFAR-100
-python main.py --config=./configs/cifar-100-seed-15.yml \
+python main.py --config=./exps/sdlora_c100_task_free_20_t.json \
   >> sdlora_cifar100.log 2>&1 &
 
 # ImageNet-R
-python main.py --config=./configs/imgn-r-seed-15.yml \
+python main.py --config=./exps/sdlora_ina_task_free_20_t.json \
   >> sdlora_imagenet_r.log 2>&1 &
-
-# VTAB
-python main.py --config=./configs/vtab-large-seed-25.yml \
-  >> sdlora_vtab.log 2>&1 &
 ```
-
-
 
 
 ## 📊 Results
