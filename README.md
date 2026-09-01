@@ -121,6 +121,8 @@ python main.py --config=./exps/sdlora_ina_task_free_20_t.json \
 # VTAB
 python main.py --config=./exps/sdlora_vtab_task_free_10_t.json \
   >> sdlora_vtab_r.log 2>&1 
+
+# Note that you should change the incremental_learning methods in sdlora.py for running this
 ```
 
 

@@ -529,6 +529,26 @@ class Learner(BaseLearner):
         if len(self._multiple_gpus) > 1:
             self._network = self._network.module
 
+
+    def incremental_train_vtab(self, data_manager):
+        self.total_classnum = data_manager.get_total_classnum_vtab()
+        names = ['eurosat', 'oxford_flowers102', 'oxford_iiit_pet', 'patch_camelyon', 'resisc45']
+        self._cur_task += 1
+        self._total_classes = self._known_classes + data_manager.get_task_size(self._cur_task)
+        self._network.update_fc(self._total_classes)
+
+        logging.info('Learning on {}-{}'.format(self._known_classes, self._total_classes))
+
+        train_dataset = data_manager.get_dataset_vtab(np.arange(self._known_classes, self._total_classes), names, self._cur_task, source='train', mode='train')
+        self.train_loader = DataLoader(train_dataset, batch_size=self.args['batch_size'], shuffle=True,
+                                       num_workers=num_workers)
+        test_dataset = data_manager.get_dataset_vtab(np.arange(0, self._total_classes), names, self._cur_task, source='test', mode='test')
+        self.test_loader = DataLoader(test_dataset, batch_size=self.args['batch_size'], shuffle=False,
+                                      num_workers=num_workers)
+        
+        self._train(self.train_loader, self.test_loader)
+
+
     def update_network(self, index=True):
         # if use VIT-B-16
         model = timm.create_model("vit_base_patch16_224",pretrained=True, num_classes=0)

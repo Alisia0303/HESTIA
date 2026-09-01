@@ -13,7 +13,7 @@ class DataManager(object):
         self.args = args
         self.dataset_name = dataset_name
         if self.dataset_name == "VTAB_large":
-            self._setup_data_vtab(dataset_name, shuffle, seed)
+            self._setup_data_vtab()
             len_class_order = 0
             for item in self._class_order:
                 len_class_order += len(self._class_order[item])

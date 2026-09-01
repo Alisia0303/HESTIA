@@ -280,6 +280,8 @@ def _train(args):
             "Trainable params: {}".format(count_parameters(model._network, True))
         )
         model.incremental_train(data_manager)
+        # model.incremental_train_vtab(data_manager)
+        
         cnn_accy, nme_accy = model.eval_task()
         model.after_task()
 
