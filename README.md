@@ -101,6 +101,31 @@ python -m main --cfg './config/imgn-r-seed-15-ranpac.yml'
 python -m main --cfg './config/vtab-large-seed-15-ranpac.yml'
 ```
 
+
+### 3. SD-LORA
+```bash
+cd baselines/SD-Lora/
+
+# Split CIFAR-10
+python main.py --config=./configs/cifar-10-seed-15.yml \
+  >> sdlora_cifar10.log 2>&1 &
+
+# Split CIFAR-100
+python main.py --config=./configs/cifar-100-seed-15.yml \
+  >> sdlora_cifar100.log 2>&1 &
+
+# ImageNet-R
+python main.py --config=./configs/imgn-r-seed-15.yml \
+  >> sdlora_imagenet_r.log 2>&1 &
+
+# VTAB
+python main.py --config=./configs/vtab-large-seed-25.yml \
+  >> sdlora_vtab.log 2>&1 &
+```
+
+
+
+
 ## 📊 Results
 
 HESTIA consistently achieves state-of-the-art accuracy and the lowest forgetting across all evaluated benchmarks (Split CIFAR-10/100, Split ImageNet-R, VTAB5T) while using fewer trainable parameters than competing Transformer-based TFCL baselines. Please refer to the paper for detailed comparisons, ablations, and theoretical analysis.
